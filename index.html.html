@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TECHFEST/26 — Ground Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============ TOKENS ============ */
+:root{
+  --void:#05060A;
+  --panel:#0D0F1A;
+  --panel-line: rgba(237,238,245,0.09);
+  --cyan:#4DE8FF;
+  --amber:#FF7A33;
+  --green:#5BFFA8;
+  --paper:#EDEEF5;
+  --slate:#7C8299;
+  --display: 'Space Grotesk', sans-serif;
+  --body: 'Inter', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+html{scroll-behavior:smooth; background:var(--void);}
+body{
+  background:var(--void);
+  color:var(--paper);
+  font-family:var(--body);
+  overflow-x:hidden;
+  cursor:default;
+}
+@media (prefers-reduced-motion: no-preference){
+  @media (pointer:fine){ body{ cursor:none; } }
+}
+::selection{ background:var(--cyan); color:var(--void); }
+
+a{ color:inherit; text-decoration:none; }
+button{ font-family:inherit; border:none; background:none; color:inherit; cursor:pointer; }
+
+/* ============ CANVAS / LOADER ============ */
+#scene-canvas{
+  position:fixed; inset:0; width:100vw; height:100vh; z-index:0; display:block;
+}
+
+#loader{
+  position:fixed; inset:0; z-index:999; background:var(--void);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:18px; transition:opacity .8s ease, visibility .8s ease;
+}
+#loader.hide{ opacity:0; visibility:hidden; pointer-events:none; }
+.loader-mark{
+  font-family:var(--mono); letter-spacing:.35em; font-size:11px; color:var(--slate); text-transform:uppercase;
+}
+.loader-bar-track{ width:220px; height:2px; background:var(--panel-line); position:relative; overflow:hidden; }
+.loader-bar-fill{ position:absolute; left:0; top:0; height:100%; width:0%; background:var(--cyan); box-shadow:0 0 12px var(--cyan); }
+.loader-pct{ font-family:var(--mono); font-size:11px; color:var(--cyan); letter-spacing:.1em; }
+
+/* ============ CURSOR ============ */
+#cursor{
+  position:fixed; top:0; left:0; width:22px; height:22px; border:1px solid var(--cyan);
+  border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; z-index:998;
+  transition:width .18s ease, height .18s ease, border-color .18s ease, background .18s ease;
+  mix-blend-mode:difference;
+}
+#cursor.active{ width:44px; height:44px; background:rgba(77,232,255,0.15); }
+#cursor.drag{ width:60px; height:60px; border-color:var(--amber); background:rgba(255,122,51,0.12); }
+#cursor::after{
+  content:''; position:absolute; left:50%; top:50%; width:2px; height:2px; background:var(--cyan);
+  border-radius:50%; transform:translate(-50%,-50%);
+}
+@media (pointer:coarse){ #cursor{ display:none; } }
+
+/* ============ HUD FRAME ============ */
+.hud{ position:fixed; inset:0; z-index:50; pointer-events:none; font-family:var(--mono); }
+.hud-corner{
+  position:absolute; width:26px; height:26px; border-color:rgba(237,238,245,0.5); opacity:.7;
+}
+.hud-corner.tl{ top:20px; left:20px; border-top:1px solid; border-left:1px solid; }
+.hud-corner.tr{ top:20px; right:20px; border-top:1px solid; border-right:1px solid; }
+.hud-corner.bl{ bottom:20px; left:20px; border-bottom:1px solid; border-left:1px solid; }
+.hud-corner.br{ bottom:20px; right:20px; border-bottom:1px solid; border-right:1px solid; }
+
+.hud-readout{
+  position:absolute; font-size:10px; letter-spacing:.12em; color:var(--slate); line-height:1.6; text-transform:uppercase;
+}
+.hud-readout b{ color:var(--cyan); font-weight:500; }
+.hud-readout.top-left{ top:34px; left:52px; }
+.hud-readout.top-right{ top:34px; right:52px; text-align:right; }
+.hud-readout.bottom-left{ bottom:34px; left:52px; }
+.hud-readout.bottom-right{ bottom:34px; right:52px; text-align:right; }
+@media (max-width:640px){
+  .hud-readout.top-right, .hud-readout.bottom-right{ display:none; }
+}
+
+#scroll-progress{
+  position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--cyan),var(--amber));
+  z-index:60; width:0%; box-shadow:0 0 8px var(--cyan);
+}
+
+/* ============ NAV ============ */
+nav.topnav{
+  position:fixed; top:0; left:0; right:0; z-index:55; padding:22px 28px 0;
+  display:flex; align-items:center; justify-content:space-between;
+  pointer-events:none;
+}
+nav.topnav *{ pointer-events:auto; }
+.brand{ font-family:var(--display); font-weight:700; font-size:15px; letter-spacing:.05em; }
+.brand span{ color:var(--cyan); }
+.nav-links{ display:flex; gap:26px; font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+.nav-links a{ color:var(--slate); transition:color .25s ease; position:relative; }
+.nav-links a:hover{ color:var(--paper); }
+@media (max-width:640px){ .nav-links{ display:none; } }
+
+/* ============ LAYOUT ============ */
+main{ position:relative; z-index:10; }
+section.scene{ position:relative; width:100%; }
+.pin{
+  min-height:100vh; position:sticky; top:0; display:flex; align-items:center;
+  padding:0 8vw;
+}
+.wrap{ max-width:1240px; margin:0 auto; width:100%; }
+
+.eyebrow{
+  font-family:var(--mono); font-size:11px; letter-spacing:.25em; text-transform:uppercase; color:var(--cyan);
+  display:flex; align-items:center; gap:10px; margin-bottom:22px;
+}
+.eyebrow::before{ content:''; width:26px; height:1px; background:var(--cyan); }
+
+h1,h2,h3{ font-family:var(--display); font-weight:600; letter-spacing:-.01em; }
+
+/* ---- HERO ---- */
+#hero-pin{ flex-direction:column; align-items:flex-start; justify-content:center; }
+.hero-title{
+  font-size:clamp(52px, 11vw, 148px); line-height:.92; font-weight:700; text-transform:uppercase;
+}
+.hero-title .line2{ color:transparent; -webkit-text-stroke:1px var(--paper); }
+.hero-sub{
+  margin-top:26px; max-width:520px; font-size:16px; line-height:1.6; color:var(--slate); font-weight:400;
+}
+.hero-meta{
+  margin-top:44px; display:flex; gap:40px; flex-wrap:wrap;
+}
+.hero-meta div{ font-family:var(--mono); font-size:11px; color:var(--slate); letter-spacing:.08em; }
+.hero-meta b{ display:block; color:var(--paper); font-size:14px; margin-top:6px; letter-spacing:.02em; }
+.scroll-cue{
+  position:absolute; bottom:70px; left:8vw; display:flex; align-items:center; gap:12px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.2em; color:var(--slate); text-transform:uppercase;
+}
+.scroll-cue .bar{ width:1px; height:34px; background:linear-gradient(var(--cyan), transparent); animation:scrollpulse 1.8s infinite ease-in-out; }
+@keyframes scrollpulse{ 0%,100%{ opacity:.2 } 50%{ opacity:1 } }
+
+/* ---- LAUNCH ---- */
+.launch-panel{
+  max-width:420px; margin-left:auto;
+}
+.launch-status{
+  font-family:var(--mono); font-size:11px; color:var(--amber); letter-spacing:.15em; margin-bottom:14px; min-height:16px;
+}
+.launch-panel h2{ font-size:clamp(30px,4vw,44px); margin-bottom:16px; }
+.launch-panel p{ color:var(--slate); font-size:15px; line-height:1.7; }
+.telemetry-grid{
+  margin-top:34px; display:grid; grid-template-columns:1fr 1fr; gap:18px;
+  border-top:1px solid var(--panel-line); padding-top:22px;
+}
+.telemetry-grid div{ font-family:var(--mono); }
+.telemetry-grid .label{ font-size:10px; color:var(--slate); letter-spacing:.15em; }
+.telemetry-grid .val{ font-size:20px; color:var(--cyan); margin-top:4px; }
+
+/* ---- CORE / ABOUT ---- */
+.about-panel{ max-width:480px; }
+.about-panel h2{ font-size:clamp(30px,4vw,46px); margin-bottom:20px; }
+.about-panel p{ color:var(--slate); font-size:15.5px; line-height:1.75; margin-bottom:14px; }
+.stat-row{ display:flex; gap:36px; margin-top:36px; flex-wrap:wrap; }
+.stat{ font-family:var(--mono); }
+.stat .num{ font-size:clamp(26px,3vw,36px); color:var(--paper); font-weight:500; }
+.stat .num span{ color:var(--cyan); }
+.stat .lbl{ font-size:10px; color:var(--slate); letter-spacing:.14em; margin-top:6px; text-transform:uppercase; }
+
+/* ---- EVENTS ---- */
+#events-pin{ flex-direction:column; justify-content:flex-start; padding-top:14vh; }
+.events-head{ max-width:600px; }
+.events-head h2{ font-size:clamp(30px,4vw,46px); }
+.events-head p{ margin-top:14px; color:var(--slate); font-size:15px; max-width:440px; line-height:1.6; }
+.drag-hint{
+  margin-top:18px; font-family:var(--mono); font-size:11px; color:var(--amber); letter-spacing:.1em;
+  display:flex; align-items:center; gap:10px; opacity:.9;
+}
+.drag-hint svg{ width:16px; height:16px; }
+
+.event-label{
+  position:fixed; z-index:40; transform:translate(-50%,-140%); pointer-events:none;
+  font-family:var(--mono); font-size:11px; letter-spacing:.1em; color:var(--paper);
+  background:rgba(13,15,26,0.85); border:1px solid var(--panel-line); padding:6px 10px;
+  white-space:nowrap; opacity:0; transition:opacity .15s ease; text-transform:uppercase;
+}
+.event-label.show{ opacity:1; }
+.event-label .code{ color:var(--cyan); margin-right:6px; }
+
+.event-detail{
+  position:fixed; right:6vw; bottom:8vh; z-index:45; width:min(360px, 84vw);
+  background:rgba(13,15,26,0.92); border:1px solid var(--panel-line); padding:26px;
+  backdrop-filter:blur(6px); transform:translateY(16px); opacity:0; pointer-events:none;
+  transition:opacity .35s ease, transform .35s ease;
+}
+.event-detail.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+.event-detail .code{ font-family:var(--mono); font-size:11px; color:var(--cyan); letter-spacing:.15em; }
+.event-detail h3{ font-size:22px; margin:10px 0 12px; text-transform:uppercase; }
+.event-detail p{ font-size:13.5px; color:var(--slate); line-height:1.65; }
+.event-detail .close{ position:absolute; top:14px; right:16px; font-family:var(--mono); font-size:16px; color:var(--slate); }
+.event-detail .close:hover{ color:var(--paper); }
+
+/* ---- TIMELINE ---- */
+#timeline-pin{ flex-direction:column; align-items:flex-start; justify-content:center; }
+.timeline-head h2{ font-size:clamp(30px,4vw,46px); max-width:560px; }
+.timeline-head p{ color:var(--slate); margin-top:14px; max-width:460px; line-height:1.6; }
+.timeline-rail{
+  margin-top:56px; display:grid; grid-template-columns:repeat(3, 1fr); gap:1px;
+  background:var(--panel-line); width:100%; max-width:900px;
+}
+.tl-card{ background:var(--void); padding:26px 22px; }
+.tl-card .day{ font-family:var(--mono); font-size:10px; color:var(--amber); letter-spacing:.15em; }
+.tl-card h4{ font-family:var(--display); font-size:19px; margin:12px 0 10px; text-transform:uppercase; }
+.tl-card ul{ list-style:none; }
+.tl-card li{ font-size:12.5px; color:var(--slate); padding:5px 0; border-top:1px solid var(--panel-line); }
+.tl-card li:first-child{ border-top:none; }
+.tl-card li span{ color:var(--paper); font-family:var(--mono); font-size:11px; margin-right:8px; }
+@media (max-width:760px){ .timeline-rail{ grid-template-columns:1fr; } }
+
+/* ---- CTA / FOOTER ---- */
+#cta-pin{ flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+.cta-eyebrow{ font-family:var(--mono); font-size:11px; color:var(--cyan); letter-spacing:.25em; text-transform:uppercase; margin-bottom:20px;}
+.cta-title{ font-size:clamp(38px,7vw,88px); font-weight:700; text-transform:uppercase; line-height:1; }
+.countdown{ display:flex; gap:26px; margin:44px 0 40px; flex-wrap:wrap; justify-content:center; }
+.countdown div{ font-family:var(--mono); text-align:center; min-width:70px; }
+.countdown .n{ font-size:clamp(30px,5vw,48px); color:var(--paper); font-weight:500; }
+.countdown .u{ font-size:10px; color:var(--slate); letter-spacing:.15em; margin-top:6px; }
+.btn-primary{
+  font-family:var(--mono); font-size:12px; letter-spacing:.15em; text-transform:uppercase;
+  background:var(--cyan); color:var(--void); padding:16px 38px; display:inline-flex; align-items:center; gap:10px;
+  transition:transform .25s ease, box-shadow .25s ease; box-shadow:0 0 0 rgba(77,232,255,0);
+}
+.btn-primary:hover{ transform:translateY(-2px); box-shadow:0 10px 30px rgba(77,232,255,.25); }
+.footer-meta{
+  margin-top:80px; display:flex; gap:40px; font-family:var(--mono); font-size:10px; color:var(--slate);
+  letter-spacing:.1em; flex-wrap:wrap; justify-content:center;
+}
+footer{ position:relative; z-index:10; padding:30px 8vw 40px; display:flex; justify-content:space-between;
+  font-family:var(--mono); font-size:10px; color:var(--slate); letter-spacing:.1em; border-top:1px solid var(--panel-line); }
+@media (max-width:640px){ footer{ flex-direction:column; gap:8px; } }
+
+#flash{ position:fixed; inset:0; background:var(--paper); opacity:0; z-index:80; pointer-events:none; }
+
+.reveal{ opacity:0; transform:translateY(24px); transition:opacity .8s ease, transform .8s ease; }
+.reveal.in{ opacity:1; transform:translateY(0); }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="loader-mark">TECHFEST // GROUND CONTROL</div>
+  <div class="loader-bar-track"><div class="loader-bar-fill" id="loaderFill"></div></div>
+  <div class="loader-pct" id="loaderPct">INITIALIZING · 0%</div>
+</div>
+
+<div id="cursor"></div>
+<div id="flash"></div>
+<canvas id="scene-canvas"></canvas>
+<div id="scroll-progress"></div>
+
+<div class="hud">
+  <div class="hud-corner tl"></div>
+  <div class="hud-corner tr"></div>
+  <div class="hud-corner bl"></div>
+  <div class="hud-corner br"></div>
+  <div class="hud-readout top-left">GROUND CONTROL<br>STATUS: <b id="hudStatus">STANDBY</b></div>
+  <div class="hud-readout top-right" id="hudClock">00:00:00 IST</div>
+  <div class="hud-readout bottom-left">ALT <b id="hudAlt">0000</b>m &nbsp; VEL <b id="hudVel">0.0</b>km/s</div>
+  <div class="hud-readout bottom-right">SCROLL <b id="hudScroll">000</b>%</div>
+</div>
+
+<nav class="topnav">
+  <div class="brand">TECHFEST<span>/26</span></div>
+  <div class="nav-links">
+    <a href="#events">Tracks</a>
+    <a href="#timeline">Timeline</a>
+    <a href="#cta">Register</a>
+  </div>
+</nav>
+
+<main>
+
+  <section class="scene" id="hero" style="height:100vh;">
+    <div class="pin" id="hero-pin">
+      <div class="eyebrow">Mission Control // Techfest.26</div>
+      <h1 class="hero-title">TECHFEST<br><span class="line2">IGNITION</span></h1>
+      <p class="hero-sub">Asia's arena for builders, hackers and makers. Three days. One countdown. Every idea gets a launch window — scroll to begin the sequence.</p>
+      <div class="hero-meta">
+        <div>Dates<b>27–29 DEC 2026</b></div>
+        <div>Venue<b>IIT CAMPUS GROUNDS</b></div>
+        <div>Tracks<b>05 ACTIVE</b></div>
+      </div>
+    </div>
+    <div class="scroll-cue"><div class="bar"></div>SCROLL TO LAUNCH</div>
+  </section>
+
+  <section class="scene" id="launch" style="height:280vh;">
+    <div class="pin" id="launch-pin">
+      <div class="wrap">
+        <div class="launch-panel reveal">
+          <div class="launch-status" id="launchStatus">T-MINUS 10 · IGNITION SEQUENCE START</div>
+          <h2>Four months of prep.<br>72 hours of build.</h2>
+          <p>Every registration is a countdown of its own — teams assembling, ideas fuelling up, prototypes waiting on the pad. Watch the telemetry as we clear the tower.</p>
+          <div class="telemetry-grid">
+            <div><div class="label">ALTITUDE</div><div class="val" id="tAlt">0 m</div></div>
+            <div><div class="label">VELOCITY</div><div class="val" id="tVel">0.0 km/s</div></div>
+            <div><div class="label">STAGE</div><div class="val" id="tStage">01</div></div>
+            <div><div class="label">TEAMS QUEUED</div><div class="val">4,208</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene" id="about" style="height:180vh;">
+    <div class="pin" id="about-pin">
+      <div class="wrap">
+        <div class="about-panel reveal">
+          <div class="eyebrow">What is Techfest</div>
+          <h2>Not a fest.<br>A mission briefing.</h2>
+          <p>Techfest is where student engineers, researchers and first-time builders converge for three days of competitions, workshops and talks that don't stay theoretical for long.</p>
+          <p>Every track ends in something real: a working bot, a shipped model, a deployed hack. The core below holds them all in orbit — pull it apart on the next screen.</p>
+          <div class="stat-row">
+            <div class="stat"><div class="num"><span>14</span>,000+</div><div class="lbl">Participants</div></div>
+            <div class="stat"><div class="num"><span>120</span>+</div><div class="lbl">Colleges</div></div>
+            <div class="stat"><div class="num"><span>₹18</span>L</div><div class="lbl">In Prizes</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene" id="events" style="height:260vh;">
+    <div class="pin" id="events-pin">
+      <div class="wrap">
+        <div class="events-head reveal">
+          <div class="eyebrow">Select your track</div>
+          <h2>Five tracks. One core.</h2>
+          <p>Drag the array to look around. Click a node to pull its mission file.</p>
+          <div class="drag-hint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 12h8M8 12l3-3M8 12l3 3M16 12l-3-3M16 12l-3 3"/></svg>
+            DRAG TO ROTATE ARRAY
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene" id="timeline" style="height:150vh;">
+    <div class="pin" id="timeline-pin">
+      <div class="wrap">
+        <div class="timeline-head reveal">
+          <div class="eyebrow">Mission timeline</div>
+          <h2>Three days on the manifest.</h2>
+          <p>A rough flight plan — full schedule drops with registration confirmation.</p>
+        </div>
+        <div class="timeline-rail reveal">
+          <div class="tl-card">
+            <div class="day">DAY 01 · FRI</div>
+            <h4>Liftoff</h4>
+            <ul>
+              <li><span>09:00</span>Opening ceremony</li>
+              <li><span>11:00</span>Hackathon kickoff</li>
+              <li><span>14:00</span>Robotics qualifiers</li>
+              <li><span>19:00</span>Keynote: Autonomous Systems</li>
+            </ul>
+          </div>
+          <div class="tl-card">
+            <div class="day">DAY 02 · SAT</div>
+            <h4>Max-Q</h4>
+            <ul>
+              <li><span>10:00</span>AI/ML model sprint</li>
+              <li><span>13:00</span>CanSat launch trials</li>
+              <li><span>17:00</span>Game jam midpoint</li>
+              <li><span>21:00</span>Late-night lab hours</li>
+            </ul>
+          </div>
+          <div class="tl-card">
+            <div class="day">DAY 03 · SUN</div>
+            <h4>Re-entry</h4>
+            <ul>
+              <li><span>09:00</span>Hackathon submissions</li>
+              <li><span>12:00</span>Robotics finals</li>
+              <li><span>16:00</span>Judging & demos</li>
+              <li><span>19:00</span>Closing + awards</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="scene" id="cta" style="height:170vh;">
+    <div class="pin" id="cta-pin">
+      <div class="cta-eyebrow">Launch window closing</div>
+      <h2 class="cta-title">Request<br>Clearance</h2>
+      <div class="countdown" id="countdown">
+        <div><div class="n" id="cd-d">00</div><div class="u">Days</div></div>
+        <div><div class="n" id="cd-h">00</div><div class="u">Hours</div></div>
+        <div><div class="n" id="cd-m">00</div><div class="u">Mins</div></div>
+        <div><div class="n" id="cd-s">00</div><div class="u">Secs</div></div>
+      </div>
+      <a href="#" class="btn-primary" id="registerBtn">Register for Techfest/26 →</a>
+      <div class="footer-meta">
+        <span>27–29 DEC 2026</span>
+        <span>IIT CAMPUS GROUNDS</span>
+        <span>OPEN TO ALL COLLEGES</span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <span>TECHFEST/26 © MISSION ARCHIVE</span>
+  <span>DEMO CONCEPT · BUILT WITH THREE.JS + GSAP</span>
+</footer>
+
+<div class="event-label" id="eventLabel"></div>
+<div class="event-detail" id="eventDetail">
+  <span class="close" id="eventDetailClose">✕</span>
+  <div class="code" id="edCode">TRK-01</div>
+  <h3 id="edName">ROBOTICS</h3>
+  <p id="edDesc">Description</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ===================== LOADER ===================== */
+  var loaderFill = document.getElementById('loaderFill');
+  var loaderPct = document.getElementById('loaderPct');
+  var loader = document.getElementById('loader');
+  var pct = 0;
+  var loaderInterval = setInterval(function(){
+    pct += Math.random()*18 + 6;
+    if(pct >= 100){ pct = 100; clearInterval(loaderInterval); finishLoad(); }
+    loaderFill.style.width = pct + '%';
+    loaderPct.textContent = 'INITIALIZING · ' + Math.floor(pct) + '%';
+  }, 160);
+
+  function finishLoad(){
+    setTimeout(function(){
+      loader.classList.add('hide');
+      document.body.style.cursor = '';
+    }, 260);
+  }
+
+  /* ===================== CURSOR ===================== */
+  var cursor = document.getElementById('cursor');
+  var hasFinePointer = window.matchMedia('(pointer:fine)').matches;
+  if(hasFinePointer){
+    window.addEventListener('mousemove', function(e){
+      cursor.style.left = e.clientX + 'px';
+      cursor.style.top = e.clientY + 'px';
+    });
+    document.querySelectorAll('a, button, .btn-primary').forEach(function(el){
+      el.addEventListener('mouseenter', function(){ cursor.classList.add('active'); });
+      el.addEventListener('mouseleave', function(){ cursor.classList.remove('active'); });
+    });
+  }
+
+  /* ===================== LIVE CLOCK ===================== */
+  function tickClock(){
+    var d = new Date();
+    var hh = String(d.getHours()).padStart(2,'0');
+    var mm = String(d.getMinutes()).padStart(2,'0');
+    var ss = String(d.getSeconds()).padStart(2,'0');
+    document.getElementById('hudClock').innerHTML = hh+':'+mm+':'+ss+' LOCAL<br>GC-STATION 07';
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+
+  /* ===================== COUNTDOWN ===================== */
+  var TARGET_DATE = new Date('2026-12-27T09:00:00');
+  function tickCountdown(){
+    var now = new Date();
+    var diff = TARGET_DATE - now;
+    if(diff < 0) diff = 0;
+    var d = Math.floor(diff/(1000*60*60*24));
+    var h = Math.floor((diff/(1000*60*60))%24);
+    var m = Math.floor((diff/(1000*60))%60);
+    var s = Math.floor((diff/1000)%60);
+    document.getElementById('cd-d').textContent = String(d).padStart(2,'0');
+    document.getElementById('cd-h').textContent = String(h).padStart(2,'0');
+    document.getElementById('cd-m').textContent = String(m).padStart(2,'0');
+    document.getElementById('cd-s').textContent = String(s).padStart(2,'0');
+  }
+  tickCountdown();
+  setInterval(tickCountdown, 1000);
+
+  document.getElementById('registerBtn').addEventListener('click', function(e){
+    e.preventDefault();
+    alert('This is a concept demo — wire this button up to your real registration form.');
+  });
+
+  /* ===================== REVEAL ON SCROLL ===================== */
+  var revealEls = document.querySelectorAll('.reveal');
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){ en.target.classList.add('in'); }
+    });
+  }, {threshold:0.2});
+  revealEls.forEach(function(el){ io.observe(el); });
+
+  /* ===================== THREE.JS SCENE ===================== */
+  var canvas = document.getElementById('scene-canvas');
+  var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true, alpha:false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x05060A, 1);
+
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x05060A, 0.012);
+
+  var camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 500);
+  camera.position.set(0, 2, 13);
+
+  var ambient = new THREE.AmbientLight(0x8899ff, 0.5);
+  scene.add(ambient);
+  var keyLight = new THREE.DirectionalLight(0x4de8ff, 1.1);
+  keyLight.position.set(5, 10, 8);
+  scene.add(keyLight);
+  var rimLight = new THREE.DirectionalLight(0xff7a33, 0.6);
+  rimLight.position.set(-6, -2, -4);
+  scene.add(rimLight);
+
+  /* ---- soft round point texture ---- */
+  function makeDotTexture(color){
+    var c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    var ctx = c.getContext('2d');
+    var g = ctx.createRadialGradient(32,32,0,32,32,32);
+    g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,64,64);
+    return new THREE.CanvasTexture(c);
+  }
+  var starTex = makeDotTexture('rgba(255,255,255,1)');
+  var glowTex = makeDotTexture('rgba(77,232,255,1)');
+  var amberTex = makeDotTexture('rgba(255,122,51,1)');
+
+  /* ---- starfield ---- */
+  var starCount = 2200;
+  var starGeo = new THREE.BufferGeometry();
+  var starPos = new Float32Array(starCount*3);
+  for(var i=0;i<starCount;i++){
+    var r = 60 + Math.random()*140;
+    var theta = Math.random()*Math.PI*2;
+    var phi = Math.acos((Math.random()*2)-1);
+    starPos[i*3] = r*Math.sin(phi)*Math.cos(theta);
+    starPos[i*3+1] = r*Math.sin(phi)*Math.sin(theta);
+    starPos[i*3+2] = r*Math.cos(phi) - 40;
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  var starMat = new THREE.PointsMaterial({ size:1.4, map:starTex, transparent:true, depthWrite:false, color:0xffffff, opacity:0.85 });
+  var starField = new THREE.Points(starGeo, starMat);
+  scene.add(starField);
+
+  /* ---- circuit grid floor ---- */
+  var grid = new THREE.GridHelper(120, 40, 0x4de8ff, 0x14202b);
+  grid.position.y = -4;
+  grid.material.transparent = true;
+  grid.material.opacity = 0.25;
+  scene.add(grid);
+
+  /* ---- rocket ---- */
+  var rocket = new THREE.Group();
+  var bodyMat = new THREE.MeshStandardMaterial({ color:0xd7dbe6, metalness:0.6, roughness:0.35 });
+  var stripeMat = new THREE.MeshStandardMaterial({ color:0xff7a33, metalness:0.4, roughness:0.4 });
+  var finMat = new THREE.MeshStandardMaterial({ color:0x1c2230, metalness:0.5, roughness:0.5 });
+
+  var noseCone = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.1, 24), bodyMat);
+  noseCone.position.y = 2.05;
+  rocket.add(noseCone);
+
+  var bodyCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 2.4, 24), bodyMat);
+  bodyCyl.position.y = 0.3;
+  rocket.add(bodyCyl);
+
+  var stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.425, 0.425, 0.3, 24), stripeMat);
+  stripe.position.y = 0.9;
+  rocket.add(stripe);
+
+  var engineCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.6, 24), finMat);
+  engineCyl.position.y = -1.2;
+  rocket.add(engineCyl);
+
+  for(var f=0; f<3; f++){
+    var fin = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.9, 3), finMat);
+    fin.scale.set(1, 1, 0.18);
+    fin.position.set(0.5, -0.95, 0);
+    fin.rotation.z = Math.PI/2;
+    var pivot = new THREE.Group();
+    pivot.rotation.y = (f/3)*Math.PI*2;
+    pivot.add(fin);
+    rocket.add(pivot);
+  }
+
+  rocket.position.set(0, 0, 0);
+  scene.add(rocket);
+
+  /* ---- exhaust particles ---- */
+  var exCount = 400;
+  var exGeo = new THREE.BufferGeometry();
+  var exPos = new Float32Array(exCount*3);
+  var exVel = [];
+  for(var e=0;e<exCount;e++){
+    exPos[e*3] = (Math.random()-0.5)*0.3;
+    exPos[e*3+1] = -1.4;
+    exPos[e*3+2] = (Math.random()-0.5)*0.3;
+    exVel.push({ x:(Math.random()-0.5)*0.02, y:-(Math.random()*0.05+0.02), z:(Math.random()-0.5)*0.02, life:Math.random() });
+  }
+  exGeo.setAttribute('position', new THREE.BufferAttribute(exPos, 3));
+  var exMat = new THREE.PointsMaterial({ size:0.55, map:amberTex, transparent:true, depthWrite:false, color:0xff7a33, opacity:0, blending:THREE.AdditiveBlending });
+  var exhaust = new THREE.Points(exGeo, exMat);
+  rocket.add(exhaust);
+
+  /* ---- core + orbiting event tracks ---- */
+  var coreAnchor = new THREE.Vector3(0, 0, -5);
+  var core = new THREE.Group();
+  core.position.copy(coreAnchor);
+  var coreMesh = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(1.7, 1),
+    new THREE.MeshBasicMaterial({ color:0x4de8ff, wireframe:true, transparent:true, opacity:0.55 })
+  );
+  core.add(coreMesh);
+  var coreInner = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.9, 0),
+    new THREE.MeshBasicMaterial({ color:0xff7a33, wireframe:true, transparent:true, opacity:0.5 })
+  );
+  core.add(coreInner);
+  core.visible = false;
+  scene.add(core);
+
+  var EVENTS = [
+    { code:'TRK-01', name:'ROBOTICS', color:0x4de8ff, desc:'Design, build and battle autonomous and RC bots across arenas engineered to break them.' },
+    { code:'TRK-02', name:'AI / ML', color:0x5bffa8, desc:'Ship a working model against a live dataset in under 24 hours. The leaderboard stays public the whole time.' },
+    { code:'TRK-03', name:'HACKATHON', color:0xff7a33, desc:'36 hours, one problem statement, zero sleep. Build something that should not exist yet.' },
+    { code:'TRK-04', name:'SPACE TECH', color:0x4de8ff, desc:'CanSat launches, rocketry workshops and a mission-control simulation run on real telemetry.' },
+    { code:'TRK-05', name:'GAME ARENA', color:0x5bffa8, desc:'Ranked brackets across five titles, plus a 48-hour game jam for those who would rather build the arena.' }
+  ];
+
+  var orbGroup = new THREE.Group();
+  var orbMeshes = [];
+  var orbRadius = 4.3;
+  EVENTS.forEach(function(ev, idx){
+    var angle = (idx/EVENTS.length) * Math.PI*2;
+    var pivot = new THREE.Group();
+    pivot.rotation.y = angle;
+    var mat = new THREE.MeshBasicMaterial({ color:ev.color, wireframe:true, transparent:true, opacity:0.9 });
+    var mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), mat);
+    mesh.position.set(orbRadius, Math.sin(idx*1.3)*0.6, 0);
+    mesh.userData = ev;
+    mesh.scale.setScalar(0.001);
+    pivot.add(mesh);
+    orbGroup.add(pivot);
+    orbMeshes.push(mesh);
+  });
+  orbGroup.scale.setScalar(0.001);
+  core.add(orbGroup);
+
+  /* ===================== RESIZE ===================== */
+  window.addEventListener('resize', function(){
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  /* ===================== SCROLL-DRIVEN STATE ===================== */
+  gsap.registerPlugin(ScrollTrigger);
+
+  var progress = { hero:0, launch:0, about:0, events:0, timeline:0, cta:0 };
+  var eventsActive = false;
+
+  function makeTrigger(id, key, onEnter, onLeave){
+    ScrollTrigger.create({
+      trigger: '#'+id,
+      start: 'top top',
+      end: 'bottom top',
+      onUpdate: function(self){ progress[key] = self.progress; },
+      onEnter: onEnter, onEnterBack: onEnter,
+      onLeave: onLeave, onLeaveBack: onLeave
+    });
+  }
+
+  makeTrigger('hero','hero');
+  makeTrigger('launch','launch', function(){ setStatus('LIFTOFF'); }, null);
+  makeTrigger('about','about', function(){ setStatus('ORBIT ESTABLISHED'); }, null);
+  makeTrigger('events','events',
+    function(){ eventsActive = true; setStatus('TRACKS ONLINE'); },
+    function(){ eventsActive = false; hideLabel(); }
+  );
+  makeTrigger('timeline','timeline', function(){ setStatus('CRUISE'); }, null);
+  makeTrigger('cta','cta', function(){ setStatus('FINAL APPROACH'); }, null);
+
+  var flashedOnce = false;
+  ScrollTrigger.create({
+    trigger:'#cta', start:'center center', once:true,
+    onEnter:function(){
+      if(reducedMotion) return;
+      gsap.to('#flash', { opacity:0.9, duration:0.15, yoyo:true, repeat:1, ease:'power1.inOut' });
+    }
+  });
+
+  function setStatus(s){ document.getElementById('hudStatus').textContent = s; }
+
+  var launchStatusSteps = [
+    [0.0,'T-MINUS 10 · IGNITION SEQUENCE START'],
+    [0.15,'T+00:02 · TOWER CLEARED'],
+    [0.35,'T+00:45 · MAX-Q'],
+    [0.6,'T+01:20 · STAGE SEPARATION'],
+    [0.85,'T+02:40 · ORBITAL INSERTION']
+  ];
+  function updateLaunchStatus(p){
+    var current = launchStatusSteps[0][1];
+    for(var i=0;i<launchStatusSteps.length;i++){ if(p >= launchStatusSteps[i][0]) current = launchStatusSteps[i][1]; }
+    document.getElementById('launchStatus').textContent = current;
+  }
+
+  /* ===================== INTERACTION: drag + raycast ===================== */
+  var raycaster = new THREE.Raycaster();
+  var mouseNDC = new THREE.Vector2(-10,-10);
+  var hoveredOrb = null;
+  var selectedOrb = null;
+  var isDragging = false;
+  var dragStartX = 0;
+  var dragStartRotY = 0;
+
+  function updateMouseNDC(clientX, clientY){
+    mouseNDC.x = (clientX/window.innerWidth)*2 - 1;
+    mouseNDC.y = -(clientY/window.innerHeight)*2 + 1;
+  }
+
+  window.addEventListener('pointermove', function(e){
+    updateMouseNDC(e.clientX, e.clientY);
+    if(isDragging){
+      var dx = e.clientX - dragStartX;
+      orbGroup.userData.dragOffset = dragStartRotY + dx*0.01;
+    }
+  });
+
+  window.addEventListener('pointerdown', function(e){
+    if(!eventsActive) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartRotY = orbGroup.userData.dragOffset || 0;
+    cursor.classList.add('drag');
+  });
+  window.addEventListener('pointerup', function(e){
+    isDragging = false;
+    cursor.classList.remove('drag');
+    if(!eventsActive) return;
+    // treat as click if barely moved
+    if(Math.abs(e.clientX - dragStartX) < 5 && hoveredOrb){
+      openDetail(hoveredOrb.userData);
+      selectedOrb = hoveredOrb;
+    }
+  });
+
+  var eventLabel = document.getElementById('eventLabel');
+  var eventDetail = document.getElementById('eventDetail');
+  document.getElementById('eventDetailClose').addEventListener('click', function(){
+    eventDetail.classList.remove('show');
+    selectedOrb = null;
+  });
+
+  function openDetail(ev){
+    document.getElementById('edCode').textContent = ev.code;
+    document.getElementById('edName').textContent = ev.name;
+    document.getElementById('edDesc').textContent = ev.desc;
+    eventDetail.classList.add('show');
+  }
+
+  function hideLabel(){ eventLabel.classList.remove('show'); }
+
+  var tmpVec = new THREE.Vector3();
+  function updateHoverLabel(){
+    if(!eventsActive){ hideLabel(); hoveredOrb = null; return; }
+    raycaster.setFromCamera(mouseNDC, camera);
+    var hits = raycaster.intersectObjects(orbMeshes);
+    if(hits.length > 0){
+      hoveredOrb = hits[0].object;
+      cursor.classList.add('active');
+      hoveredOrb.getWorldPosition(tmpVec);
+      tmpVec.project(camera);
+      var x = (tmpVec.x*0.5+0.5)*window.innerWidth;
+      var y = (1-(tmpVec.y*0.5+0.5))*window.innerHeight;
+      eventLabel.style.left = x+'px';
+      eventLabel.style.top = y+'px';
+      eventLabel.innerHTML = '<span class="code">'+hoveredOrb.userData.code+'</span>'+hoveredOrb.userData.name;
+      eventLabel.classList.add('show');
+    } else {
+      hoveredOrb = null;
+      cursor.classList.remove('active');
+      hideLabel();
+    }
+  }
+
+  /* ===================== RENDER LOOP ===================== */
+  var clock = new THREE.Clock();
+  var camPos = new THREE.Vector3().copy(camera.position);
+  var camLook = new THREE.Vector3(0,2,0);
+  var currentLook = new THREE.Vector3(0,2,0);
+
+  function lerp(a,b,t){ return a+(b-a)*t; }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var t = clock.getElapsedTime();
+    var dt = Math.min(clock.getDelta(), 0.05);
+
+    /* ambient motion */
+    starField.rotation.y += 0.0006 + (reducedMotion?0:0);
+    rocket.position.x = 0;
+
+    var pHero = progress.hero, pLaunch = progress.launch, pAbout = progress.about,
+        pEvents = progress.events, pTimeline = progress.timeline, pCta = progress.cta;
+
+    /* -------- HERO -------- */
+    var heroBob = reducedMotion ? 0 : Math.sin(t*1.2)*0.08;
+    var basePos = new THREE.Vector3(0, 2, 13 - pHero*2);
+    var baseLook = new THREE.Vector3(0, 2.4 + heroBob, 0);
+
+    /* -------- LAUNCH -------- */
+    var rocketVisible = pLaunch < 0.98 && progress.about < 0.4;
+    rocket.visible = rocketVisible || pHero > 0;
+    if(pLaunch > 0 || pHero > 0){
+      rocket.position.y = lerp(0, 60, pLaunch) + heroBob*0.5;
+      var exOpacity = pLaunch > 0.02 ? Math.min(1, pLaunch*3) : 0;
+      exMat.opacity = exOpacity * 0.9;
+      var launchCamPos = new THREE.Vector3(
+        lerp(2, 7, pLaunch),
+        lerp(4, 22, pLaunch) ,
+        lerp(11, 24, pLaunch)
+      );
+      var launchLook = new THREE.Vector3(0, rocket.position.y*0.55 + 2, 0);
+      if(pLaunch > 0.001){
+        basePos.copy(launchCamPos);
+        baseLook.copy(launchLook);
+      }
+      updateLaunchStatus(pLaunch);
+      if(pLaunch > 0.02 && pLaunch < 0.99){
+        var alt = Math.floor(pLaunch*41000);
+        var vel = (pLaunch*7.8).toFixed(1);
+        document.getElementById('hudAlt').textContent = String(alt).padStart(4,'0');
+        document.getElementById('hudVel').textContent = vel;
+        document.getElementById('tAlt').textContent = alt.toLocaleString()+' m';
+        document.getElementById('tVel').textContent = vel+' km/s';
+        document.getElementById('tStage').textContent = pLaunch < 0.6 ? '01' : '02';
+      }
+      /* exhaust particle motion */
+      var posAttr = exGeo.attributes.position;
+      for(var pi=0; pi<exCount; pi++){
+        var v = exVel[pi];
+        v.life -= dt*1.2;
+        if(v.life <= 0){
+          posAttr.array[pi*3] = (Math.random()-0.5)*0.25;
+          posAttr.array[pi*3+1] = -1.3;
+          posAttr.array[pi*3+2] = (Math.random()-0.5)*0.25;
+          v.life = Math.random()*0.8+0.4;
+        } else {
+          posAttr.array[pi*3] += v.x;
+          posAttr.array[pi*3+1] += v.y*(1+pLaunch*2);
+          posAttr.array[pi*3+2] += v.z;
+        }
+      }
+      posAttr.needsUpdate = true;
+    } else {
+      exMat.opacity = 0;
+    }
+
+    /* -------- ABOUT / CORE -------- */
+    core.visible = pAbout > 0.01 || pEvents > 0 || pTimeline > 0 || pCta > 0;
+    if(core.visible){
+      coreMesh.rotation.y += dt*0.15;
+      coreMesh.rotation.x += dt*0.04;
+      coreInner.rotation.y -= dt*0.25;
+      var aboutCamPos = new THREE.Vector3(lerp(0,1.2,pAbout), lerp(3,1,pAbout), lerp(16,8.5,pAbout));
+      var aboutLook = coreAnchor;
+      if(pAbout > 0.001 && pEvents < 0.001){
+        basePos.copy(aboutCamPos);
+        baseLook.copy(aboutLook);
+      }
+    }
+
+    /* -------- EVENTS -------- */
+    var targetOrbScale = pEvents > 0.02 ? 1 : 0.001;
+    orbGroup.scale.setScalar(lerp(orbGroup.scale.x, targetOrbScale, 0.08));
+    orbMeshes.forEach(function(m, idx){
+      var s = pEvents > (idx*0.05) ? 1 : 0.001;
+      m.scale.setScalar(lerp(m.scale.x, s, 0.1));
+      m.rotation.y += dt*0.6;
+      m.rotation.x += dt*0.3;
+      if(m === hoveredOrb || m === selectedOrb){
+        m.material.opacity = lerp(m.material.opacity, 1, 0.2);
+      } else {
+        m.material.opacity = lerp(m.material.opacity, 0.85, 0.1);
+      }
+    });
+    var autoRot = reducedMotion ? 0 : dt*0.08;
+    orbGroup.userData.autoRot = (orbGroup.userData.autoRot||0) + autoRot;
+    var manualOffset = orbGroup.userData.dragOffset || 0;
+    orbGroup.rotation.y = orbGroup.userData.autoRot + manualOffset;
+
+    if(pEvents > 0.001){
+      var eventsCamPos = new THREE.Vector3(lerp(1.2, 0, pEvents<0.5?pEvents*2:1), lerp(8.5, 3.5, Math.min(pEvents*1.4,1)), lerp(8.5, 15, Math.min(pEvents*1.4,1)));
+      basePos.copy(eventsCamPos);
+      baseLook.copy(coreAnchor);
+    }
+
+    /* -------- TIMELINE (ambient orbit) -------- */
+    if(pTimeline > 0.001 && pCta < 0.001){
+      var angle = t*0.05;
+      var radius = 15;
+      basePos.set(coreAnchor.x + Math.sin(angle)*radius, coreAnchor.y+3, coreAnchor.z + Math.cos(angle)*radius);
+      baseLook.copy(coreAnchor);
+    }
+
+    /* -------- CTA WARP -------- */
+    if(pCta > 0.001){
+      var warpZ = lerp(coreAnchor.z+16, coreAnchor.z-30, pCta);
+      basePos.set(coreAnchor.x, coreAnchor.y+1.5, warpZ);
+      baseLook.copy(coreAnchor);
+      camera.fov = lerp(45, 78, Math.min(pCta*1.3,1));
+      camera.updateProjectionMatrix();
+      starMat.size = lerp(1.4, 4.2, pCta);
+      starField.rotation.z += dt*pCta*0.5;
+    } else {
+      camera.fov = lerp(camera.fov, 45, 0.1);
+      camera.updateProjectionMatrix();
+      starMat.size = lerp(starMat.size, 1.4, 0.1);
+    }
+
+    /* -------- smooth camera damping -------- */
+    var damp = reducedMotion ? 1 : 0.07;
+    camPos.lerp(basePos, damp);
+    currentLook.lerp(baseLook, damp);
+    camera.position.copy(camPos);
+    camera.lookAt(currentLook);
+
+    updateHoverLabel();
+
+    /* HUD scroll % */
+    var scrollFrac = window.scrollY / (document.documentElement.scrollHeight - window.innerHeight);
+    document.getElementById('hudScroll').textContent = String(Math.round(scrollFrac*100)).padStart(3,'0');
+    document.getElementById('scroll-progress').style.width = (scrollFrac*100)+'%';
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+})();
+</script>
+</body>
+</html>
